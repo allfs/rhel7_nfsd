@@ -47,6 +47,7 @@
 #include "current_stateid.h"
 
 #include "netns.h"
+#include <linux/module.h>
 
 #define NFSDDBG_FACILITY                NFSDDBG_PROC
 
@@ -88,6 +89,11 @@ static struct kmem_cache *lockowner_slab = NULL;
 static struct kmem_cache *file_slab = NULL;
 static struct kmem_cache *stateid_slab = NULL;
 static struct kmem_cache *deleg_slab = NULL;
+
+static int nfs4_revoke_quiese_timeout = 30;
+module_param(nfs4_revoke_quiese_timeout, int, 0644);
+MODULE_PARM_DESC(nfs4_revoke_quiese_timeout,
+                 "no more delegate during this period if a conflict is detected");
 
 void
 nfs4_lock_state(void)
@@ -461,9 +467,18 @@ static void destroy_delegation(struct nfs4_delegation *dp)
 	nfs4_put_delegation(dp);
 }
 
+static void nfs4_post_revoke(struct nfs4_client *clp)
+{
+	spin_lock(&clp->cl_lock);
+    clp->had_revoke = true;
+    clp->last_revoke = get_seconds();
+	spin_unlock(&clp->cl_lock);
+}
+
 static void revoke_delegation(struct nfs4_delegation *dp)
 {
 	struct nfs4_client *clp = dp->dl_stid.sc_client;
+    nfs4_post_revoke(clp);
 
 	if (clp->cl_minorversion == 0)
 		destroy_delegation(dp);
@@ -1352,6 +1367,8 @@ static struct nfs4_client *create_client(struct xdr_netobj name,
 	idr_init(&clp->cl_stateids);
 	atomic_set(&clp->cl_refcount, 0);
 	clp->cl_cb_state = NFSD4_CB_UNKNOWN;
+    clp->had_revoke = false;
+    clp->last_revoke = 0;
 	INIT_LIST_HEAD(&clp->cl_idhash);
 	INIT_LIST_HEAD(&clp->cl_openowners);
 	INIT_LIST_HEAD(&clp->cl_delegations);
@@ -3098,6 +3115,18 @@ static void nfsd4_open_deleg_none_ext(struct nfsd4_open *open, int status)
 	}
 }
 
+static bool nfs4_had_revoke(struct nfs4_client *clp)
+{
+    bool ret;
+    time_t cutoff = get_seconds();
+	spin_lock(&clp->cl_lock);
+    ret = clp->had_revoke;
+    cutoff -= clp->last_revoke;
+    if (cutoff < nfs4_revoke_quiese_timeout)
+        ret = clp->had_revoke = false;
+	spin_unlock(&clp->cl_lock);
+    return ret;
+}
 /*
  * Attempt to hand out a delegation.
  *
@@ -3150,6 +3179,12 @@ nfs4_open_delegation(struct net *net, struct svc_fh *fh,
 	dp = alloc_init_deleg(oo->oo_owner.so_client, stp, fh);
 	if (dp == NULL)
 		goto out_no_deleg;
+
+    /* check if client is previously revoked delegation */
+    status = nfs4_had_revoke(oo->oo_owner.so_client);
+    if (status)
+        goto out_free;
+
 	status = nfs4_set_delegation(dp, stp->st_file);
 	if (status)
 		goto out_free;

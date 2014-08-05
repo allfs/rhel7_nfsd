@@ -290,6 +290,8 @@ struct nfs4_client {
 	struct rpc_wait_queue	cl_cb_waitq;	/* backchannel callers may */
 						/* wait here for slots */
 	struct net		*net;
+    bool had_revoke;
+    time_t last_revoke;
 };
 
 /* struct nfs4_client_reset
