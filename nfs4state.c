@@ -470,15 +470,15 @@ static void destroy_delegation(struct nfs4_delegation *dp)
 static void nfs4_post_revoke(struct nfs4_client *clp)
 {
 	spin_lock(&clp->cl_lock);
-    clp->had_revoke = true;
-    clp->last_revoke = get_seconds();
+        clp->had_revoke = true;
+        clp->last_revoke = get_seconds();
 	spin_unlock(&clp->cl_lock);
 }
 
 static void revoke_delegation(struct nfs4_delegation *dp)
 {
 	struct nfs4_client *clp = dp->dl_stid.sc_client;
-    nfs4_post_revoke(clp);
+        nfs4_post_revoke(clp);
 
 	if (clp->cl_minorversion == 0)
 		destroy_delegation(dp);
@@ -1367,8 +1367,8 @@ static struct nfs4_client *create_client(struct xdr_netobj name,
 	idr_init(&clp->cl_stateids);
 	atomic_set(&clp->cl_refcount, 0);
 	clp->cl_cb_state = NFSD4_CB_UNKNOWN;
-    clp->had_revoke = false;
-    clp->last_revoke = 0;
+        clp->had_revoke = false;
+        clp->last_revoke = 0;
 	INIT_LIST_HEAD(&clp->cl_idhash);
 	INIT_LIST_HEAD(&clp->cl_openowners);
 	INIT_LIST_HEAD(&clp->cl_delegations);
@@ -3119,12 +3119,12 @@ static bool nfs4_had_revoke(struct nfs4_client *clp)
 {
     bool ret;
     time_t cutoff = get_seconds();
-	spin_lock(&clp->cl_lock);
+    spin_lock(&clp->cl_lock);
     ret = clp->had_revoke;
     cutoff -= clp->last_revoke;
-    if (cutoff < nfs4_revoke_quiese_timeout)
+    if (cutoff > nfs4_revoke_quiese_timeout)
         ret = clp->had_revoke = false;
-	spin_unlock(&clp->cl_lock);
+    spin_unlock(&clp->cl_lock);
     return ret;
 }
 /*
